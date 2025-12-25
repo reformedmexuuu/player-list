@@ -38,6 +38,31 @@
             gap: 10px;
         }
 
+        /* Pasek kontrolny (Refresh + Timer) */
+        .controls-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #1e1e1e;
+            padding: 10px 20px;
+            border-radius: 8px;
+            display: none; /* Ukryte do momentu załadowania */
+        }
+
+        .timer-text {
+            font-size: 13px;
+            color: #888;
+            font-family: monospace;
+        }
+
+        .refresh-btn {
+            background-color: #2c3e50;
+            padding: 8px 15px;
+            font-size: 13px;
+            border-color: #34495e;
+        }
+        .refresh-btn:hover { background-color: #34495e; }
+
         /* Kontener filtrowania graczy */
         .player-filter-box {
             background-color: #1e1e1e;
@@ -146,10 +171,15 @@
     <div class="main-wrapper">
         <div class="server-search-box">
             <input type="text" id="cfxInput" placeholder="Wpisz CFX ID (np. epk8gp)" value="epk8gp">
-            <button onclick="fetchPlayers()">Pobierz listę</button>
+            <button onclick="initFetch()">Pobierz listę</button>
         </div>
 
         <div id="server-info"></div>
+
+        <div class="controls-bar" id="controlsBar">
+            <span class="timer-text" id="timerDisplay"><i class="far fa-clock"></i> Auto-odświeżanie za: 60s</span>
+            <button class="refresh-btn" onclick="manualRefresh()"><i class="fas fa-sync-alt"></i> Odśwież teraz</button>
+        </div>
 
         <div class="player-filter-box" id="filterBox">
             <i class="fas fa-search" style="color: #aaa;"></i>
@@ -180,23 +210,51 @@
 
     <script>
         let allPlayersData = [];
+        let refreshInterval;
+        let countdownTimer;
+        let timeLeft = 60;
+        const REFRESH_TIME = 60;
 
-        async function fetchPlayers() {
+        // Funkcja uruchamiana przyciskiem "Pobierz listę" (resetuje wszystko)
+        function initFetch() {
+            // Zatrzymujemy stare liczniki jeśli istnieją
+            stopAutoRefresh();
+            // Czyścimy filtr wyszukiwania przy zmianie serwera
+            document.getElementById('playerSearchInput').value = '';
+            // Pobieramy dane
+            fetchPlayers(false);
+        }
+
+        // Funkcja ręcznego odświeżania (zachowuje filtr)
+        function manualRefresh() {
+            fetchPlayers(true);
+            resetTimer(); // Resetujemy licznik do 60s, bo właśnie odświeżyliśmy
+        }
+
+        // Główna funkcja pobierająca
+        // keepFilter = true -> nie czyści inputa wyszukiwania (dla auto-refreshu)
+        async function fetchPlayers(keepFilter = false) {
             const cfxId = document.getElementById('cfxInput').value.trim();
             const tableBody = document.getElementById('playersTable');
             const infoDiv = document.getElementById('server-info');
             const filterBox = document.getElementById('filterBox');
+            const controlsBar = document.getElementById('controlsBar');
 
             if (!cfxId) {
                 alert("Proszę wpisać CFX ID!");
                 return;
             }
 
-            // Reset UI
-            tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Ładowanie danych...</td></tr>';
-            infoDiv.innerText = '';
-            filterBox.style.display = 'none';
-            document.getElementById('playerSearchInput').value = '';
+            // UI podczas ładowania (tylko jeśli to pierwsze ładowanie, żeby nie migać przy auto-refreshu)
+            if (!keepFilter) {
+                tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Ładowanie danych...</td></tr>';
+                infoDiv.innerText = '';
+                filterBox.style.display = 'none';
+                controlsBar.style.display = 'none';
+            } else {
+                // Przy odświeżaniu zmieniamy tylko tekst licznika na "Ładowanie..."
+                document.getElementById('timerDisplay').innerText = "Aktualizacja danych...";
+            }
 
             try {
                 const apiUrl = `https://servers-frontend.fivem.net/api/servers/single/${cfxId}`;
@@ -210,6 +268,7 @@
 
                 if (!data || !data.Data || !data.Data.players) {
                     tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: tomato;">Brak danych o graczach lub serwer offline.</td></tr>';
+                    stopAutoRefresh();
                     return;
                 }
 
@@ -219,11 +278,26 @@
                 infoDiv.innerHTML = `Serwer: <strong style="color:white">${escapeHtml(hostname)}</strong> | Online: ${allPlayersData.length}/${data.Data.sv_maxclients}`;
 
                 filterBox.style.display = 'flex';
-                renderTable(allPlayersData);
+                controlsBar.style.display = 'flex';
+
+                // Jeśli mamy coś wpisane w filtrze, użyj filtra. Jeśli nie, pokaż wszystko.
+                const currentFilter = document.getElementById('playerSearchInput').value;
+                if (currentFilter) {
+                    filterPlayers();
+                } else {
+                    renderTable(allPlayersData);
+                }
+
+                // Jeśli to pierwsze uruchomienie, startujemy timer
+                if (!refreshInterval) {
+                    startAutoRefresh();
+                }
 
             } catch (error) {
                 console.error(error);
-                tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: tomato;">Błąd: ${error.message}</td></tr>`;
+                if (!keepFilter) {
+                    tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: tomato;">Błąd: ${error.message}</td></tr>`;
+                }
             }
         }
 
@@ -270,7 +344,6 @@
 
                 const pingClass = player.ping > 100 ? 'high' : '';
                 
-                // Usunięta kolumna FAV z HTML poniżej
                 row.innerHTML = `
                     <td style="color: #666;">${index + 1}.</td>
                     <td class="col-id">${player.id}</td>
@@ -284,14 +357,48 @@
 
         function filterPlayers() {
             const query = document.getElementById('playerSearchInput').value.toLowerCase();
-            
             const filtered = allPlayersData.filter(player => {
                 const nameMatch = player.name.toLowerCase().includes(query);
                 const idMatch = player.id.toString().includes(query);
                 return nameMatch || idMatch;
             });
-
             renderTable(filtered);
+        }
+
+        // --- Logika Timera ---
+
+        function startAutoRefresh() {
+            stopAutoRefresh(); // Upewnij się, że nie ma dubli
+            timeLeft = REFRESH_TIME;
+            updateTimerDisplay();
+
+            // Interwał odliczania co 1s
+            countdownTimer = setInterval(() => {
+                timeLeft--;
+                updateTimerDisplay();
+
+                if (timeLeft <= 0) {
+                    fetchPlayers(true); // Auto odświeżenie (zachowaj filtr)
+                    timeLeft = REFRESH_TIME; // Reset czasu
+                }
+            }, 1000);
+        }
+
+        function stopAutoRefresh() {
+            clearInterval(countdownTimer);
+            refreshInterval = null; // Flaga, że timer nie działa
+        }
+
+        function resetTimer() {
+            timeLeft = REFRESH_TIME;
+            updateTimerDisplay();
+        }
+
+        function updateTimerDisplay() {
+            const display = document.getElementById('timerDisplay');
+            if(display) {
+                display.innerHTML = `<i class="far fa-clock"></i> Auto-odświeżanie za: ${timeLeft}s`;
+            }
         }
 
         function escapeHtml(text) {
