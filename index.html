@@ -203,3 +203,253 @@
 
         // Funkcja inicjująca (przycisk Główny)
         function initFetch() {
+            stopAutoRefresh();
+            document.getElementById('playerSearchInput').value = '';
+            
+            // 1. Spróbuj załadować starą historię z LocalStorage dla tego serwera
+            const cfxId = document.getElementById('cfxInput').value.trim();
+            loadHistory(cfxId);
+
+            fetchPlayers(false);
+        }
+
+        // Odświeżanie ręczne
+        function manualRefresh() {
+            fetchPlayers(true);
+            resetTimer(); 
+        }
+
+        // --- OBSŁUGA LOCAL STORAGE ---
+        
+        function loadHistory(cfxId) {
+            const key = `fivem_tracker_${cfxId}`;
+            const stored = localStorage.getItem(key);
+            if (stored) {
+                try {
+                    sessionTracker = JSON.parse(stored);
+                } catch(e) {
+                    sessionTracker = {};
+                }
+            } else {
+                sessionTracker = {};
+            }
+        }
+
+        function saveHistory(cfxId) {
+            const key = `fivem_tracker_${cfxId}`;
+            localStorage.setItem(key, JSON.stringify(sessionTracker));
+        }
+
+        function clearHistory() {
+            const cfxId = document.getElementById('cfxInput').value.trim();
+            if(!cfxId) return;
+            
+            if(confirm("Czy na pewno chcesz zresetować liczniki czasu dla tego serwera?")) {
+                localStorage.removeItem(`fivem_tracker_${cfxId}`);
+                sessionTracker = {};
+                manualRefresh(); // Przeładuj, żeby zresetować widok
+            }
+        }
+        
+        // ------------------------------
+
+        async function fetchPlayers(keepFilter = false) {
+            const cfxId = document.getElementById('cfxInput').value.trim();
+            const tableBody = document.getElementById('playersTable');
+            const infoDiv = document.getElementById('server-info');
+            const filterBox = document.getElementById('filterBox');
+            const controlsBar = document.getElementById('controlsBar');
+
+            if (!cfxId) {
+                alert("Proszę wpisać CFX ID!");
+                return;
+            }
+
+            if (!keepFilter) {
+                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Ładowanie danych...</td></tr>';
+                infoDiv.innerText = '';
+                filterBox.style.display = 'none';
+                controlsBar.style.display = 'none';
+            } else {
+                document.getElementById('timerDisplay').innerText = "Aktualizacja danych...";
+            }
+
+            try {
+                const apiUrl = `https://servers-frontend.fivem.net/api/servers/single/${cfxId}`;
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
+
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error('Nie znaleziono serwera lub błąd połączenia.');
+                const data = await response.json();
+
+                if (!data || !data.Data || !data.Data.players) {
+                    tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: tomato;">Brak danych o graczach lub serwer offline.</td></tr>';
+                    stopAutoRefresh();
+                    return;
+                }
+
+                allPlayersData = data.Data.players.sort((a, b) => a.id - b.id);
+                
+                // --- LOGIKA ŚLEDZENIA I CZYSZCZENIA ---
+                const now = Date.now();
+                const currentIds = new Set(); // Zbiór ID graczy, którzy są TERAZ online
+
+                allPlayersData.forEach(player => {
+                    currentIds.add(player.id.toString());
+
+                    // Jeśli gracza nie ma w pamięci, dodaj go teraz
+                    if (!sessionTracker[player.id]) {
+                        sessionTracker[player.id] = now;
+                    }
+                    
+                    // Przypisz dane do obiektu gracza
+                    player.joinTime = sessionTracker[player.id];
+                    player.sessionDuration = now - sessionTracker[player.id];
+                });
+
+                // Czyszczenie: Usuń z pamięci graczy, których już nie ma na serwerze
+                for (const storedId in sessionTracker) {
+                    if (!currentIds.has(storedId)) {
+                        delete sessionTracker[storedId];
+                    }
+                }
+
+                // Zapisz zaktualizowany stan do przeglądarki
+                saveHistory(cfxId);
+                // --------------------------------------
+
+                const hostname = data.Data.hostname ? data.Data.hostname.replace(/\^[0-9]/g, '') : "Nieznany serwer";
+                infoDiv.innerHTML = `Serwer: <strong style="color:white">${escapeHtml(hostname)}</strong> | Online: ${allPlayersData.length}/${data.Data.sv_maxclients}`;
+
+                filterBox.style.display = 'flex';
+                controlsBar.style.display = 'flex';
+
+                const currentFilter = document.getElementById('playerSearchInput').value;
+                if (currentFilter) {
+                    filterPlayers();
+                } else {
+                    renderTable(allPlayersData);
+                }
+
+                if (!refreshInterval) startAutoRefresh();
+
+            } catch (error) {
+                console.error(error);
+                if (!keepFilter) {
+                    tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: tomato;">Błąd: ${error.message}</td></tr>`;
+                }
+            }
+        }
+
+        function renderTable(playersData) {
+            const tableBody = document.getElementById('playersTable');
+            tableBody.innerHTML = '';
+
+            if (playersData.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #666;">Brak wyników wyszukiwania.</td></tr>';
+                return;
+            }
+
+            playersData.forEach((player, index) => {
+                const row = document.createElement('tr');
+                
+                // Socials
+                let steamUrl = '#', discordUrl = '#';
+                let showSteam = false, showDiscord = false, discordId = '';
+
+                if (player.identifiers) {
+                    player.identifiers.forEach(identifier => {
+                        if (identifier.startsWith('steam:')) {
+                            try {
+                                const decId = BigInt("0x" + identifier.split(':')[1]); 
+                                steamUrl = `https://steamcommunity.com/profiles/${decId}`;
+                                showSteam = true;
+                            } catch (e) {}
+                        }
+                        if (identifier.startsWith('discord:')) {
+                            discordId = identifier.split(':')[1];
+                            discordUrl = `https://discord.com/users/${discordId}`;
+                            showDiscord = true;
+                        }
+                    });
+                }
+
+                let socialHtml = '<div class="social-links">';
+                if (showSteam) socialHtml += `<a href="${steamUrl}" target="_blank" class="social-icon" title="Profil Steam"><i class="fab fa-steam"></i></a>`;
+                if (showDiscord) socialHtml += `<a href="${discordUrl}" target="_blank" class="social-icon" title="Discord ID: ${discordId}"><i class="fab fa-discord"></i></a>`;
+                socialHtml += '</div>';
+
+                // Formatowanie czasu
+                const joinDate = new Date(player.joinTime);
+                const joinTimeString = joinDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                
+                // Formatowanie trwania
+                const durationMs = player.sessionDuration || 0;
+                const minutesTotal = Math.floor(durationMs / 60000);
+                const hours = Math.floor(minutesTotal / 60);
+                const mins = minutesTotal % 60;
+                
+                let durationString = "";
+                if (hours > 0) durationString += `${hours}h `;
+                durationString += `${mins}m`;
+                if (minutesTotal === 0) durationString = "< 1m";
+
+                const pingClass = player.ping > 100 ? 'high' : '';
+                
+                row.innerHTML = `
+                    <td style="color: #666;">${index + 1}.</td>
+                    <td class="col-id">${player.id}</td>
+                    <td style="font-weight: bold;">${escapeHtml(player.name)}</td>
+                    <td>${socialHtml}</td>
+                    <td class="col-time">${joinTimeString}</td>
+                    <td class="col-duration">${durationString}</td>
+                    <td class="col-ping ${pingClass}">${player.ping}ms</td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        function filterPlayers() {
+            const query = document.getElementById('playerSearchInput').value.toLowerCase();
+            const filtered = allPlayersData.filter(player => {
+                return player.name.toLowerCase().includes(query) || player.id.toString().includes(query);
+            });
+            renderTable(filtered);
+        }
+
+        function startAutoRefresh() {
+            stopAutoRefresh();
+            timeLeft = REFRESH_TIME;
+            updateTimerDisplay();
+            countdownTimer = setInterval(() => {
+                timeLeft--;
+                updateTimerDisplay();
+                if (timeLeft <= 0) {
+                    fetchPlayers(true);
+                    timeLeft = REFRESH_TIME;
+                }
+            }, 1000);
+        }
+
+        function stopAutoRefresh() {
+            clearInterval(countdownTimer);
+            refreshInterval = null;
+        }
+
+        function resetTimer() {
+            timeLeft = REFRESH_TIME;
+            updateTimerDisplay();
+        }
+
+        function updateTimerDisplay() {
+            const display = document.getElementById('timerDisplay');
+            if(display) display.innerHTML = `<i class="far fa-clock"></i> Auto-odświeżanie za: ${timeLeft}s`;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return text;
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+    </script>
+</body>
+</html>
