@@ -19,7 +19,7 @@
             margin: 0;
         }
 
-        /* Główny kontener szerokości */
+        /* Główny kontener */
         .main-wrapper {
             width: 100%;
             max-width: 1000px;
@@ -43,7 +43,7 @@
             background-color: #1e1e1e;
             padding: 15px;
             border-radius: 8px;
-            display: none; /* Ukryte domyślnie, pokazuje się po załadowaniu serwera */
+            display: none; 
             gap: 10px;
             align-items: center;
             border-left: 4px solid #4a90e2;
@@ -122,10 +122,9 @@
         tbody tr:hover { background-color: #2a2a2a; }
 
         /* Style Kolumn */
-        .col-id { color: #aaa; font-family: monospace; }
-        .col-ping { font-family: monospace; color: #4cd137; }
+        .col-id { color: #aaa; font-family: monospace; width: 80px; }
+        .col-ping { font-family: monospace; color: #4cd137; width: 80px; }
         .col-ping.high { color: #e84118; } 
-        .col-fav { color: #ffd700; cursor: pointer; text-align: center; } 
         
         /* Ikonki Social Media */
         .social-links { display: flex; gap: 10px; }
@@ -162,7 +161,6 @@
                 <thead>
                     <tr>
                         <th style="width: 50px;">No.</th>
-                        <th style="width: 50px; text-align: center;">Fav</th>
                         <th style="width: 80px;">ID</th>
                         <th>Name</th>
                         <th style="width: 100px;">Socials</th>
@@ -171,7 +169,7 @@
                 </thead>
                 <tbody id="playersTable">
                     <tr>
-                        <td colspan="6" style="text-align: center; color: #666; padding: 20px;">
+                        <td colspan="5" style="text-align: center; color: #666; padding: 20px;">
                             Kliknij "Pobierz listę", aby załadować graczy.
                         </td>
                     </tr>
@@ -181,7 +179,6 @@
     </div>
 
     <script>
-        // Zmienna globalna przechowująca wszystkich pobranych graczy
         let allPlayersData = [];
 
         async function fetchPlayers() {
@@ -196,13 +193,12 @@
             }
 
             // Reset UI
-            tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Ładowanie danych...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Ładowanie danych...</td></tr>';
             infoDiv.innerText = '';
             filterBox.style.display = 'none';
-            document.getElementById('playerSearchInput').value = ''; // Reset filtra
+            document.getElementById('playerSearchInput').value = '';
 
             try {
-                // Proxy CORS
                 const apiUrl = `https://servers-frontend.fivem.net/api/servers/single/${cfxId}`;
                 const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
 
@@ -213,43 +209,36 @@
                 const data = await response.json();
 
                 if (!data || !data.Data || !data.Data.players) {
-                    tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: tomato;">Brak danych o graczach lub serwer offline.</td></tr>';
+                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: tomato;">Brak danych o graczach lub serwer offline.</td></tr>';
                     return;
                 }
 
-                // Zapisujemy dane do zmiennej globalnej i sortujemy
                 allPlayersData = data.Data.players.sort((a, b) => a.id - b.id);
                 
-                // Info o serwerze
                 const hostname = data.Data.hostname ? data.Data.hostname.replace(/\^[0-9]/g, '') : "Nieznany serwer";
                 infoDiv.innerHTML = `Serwer: <strong style="color:white">${escapeHtml(hostname)}</strong> | Online: ${allPlayersData.length}/${data.Data.sv_maxclients}`;
 
-                // Pokaż wyszukiwarkę graczy
                 filterBox.style.display = 'flex';
-
-                // Wyświetl wszystkich graczy
                 renderTable(allPlayersData);
 
             } catch (error) {
                 console.error(error);
-                tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: tomato;">Błąd: ${error.message}</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: tomato;">Błąd: ${error.message}</td></tr>`;
             }
         }
 
-        // Funkcja renderująca tabelę na podstawie przekazanej tablicy danych
         function renderTable(playersData) {
             const tableBody = document.getElementById('playersTable');
             tableBody.innerHTML = '';
 
             if (playersData.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">Brak wyników wyszukiwania.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">Brak wyników wyszukiwania.</td></tr>';
                 return;
             }
 
             playersData.forEach((player, index) => {
                 const row = document.createElement('tr');
                 
-                // --- Logika Social Media ---
                 let steamUrl = '#';
                 let discordUrl = '#';
                 let showSteam = false;
@@ -278,13 +267,12 @@
                 if (showSteam) socialHtml += `<a href="${steamUrl}" target="_blank" class="social-icon" title="Profil Steam"><i class="fab fa-steam"></i></a>`;
                 if (showDiscord) socialHtml += `<a href="${discordUrl}" target="_blank" class="social-icon" title="Discord ID: ${discordId}"><i class="fab fa-discord"></i></a>`;
                 socialHtml += '</div>';
-                // ---------------------------
 
                 const pingClass = player.ping > 100 ? 'high' : '';
                 
+                // Usunięta kolumna FAV z HTML poniżej
                 row.innerHTML = `
                     <td style="color: #666;">${index + 1}.</td>
-                    <td class="col-fav"><i class="far fa-star"></i></td>
                     <td class="col-id">${player.id}</td>
                     <td style="font-weight: bold;">${escapeHtml(player.name)}</td>
                     <td>${socialHtml}</td>
@@ -294,18 +282,15 @@
             });
         }
 
-        // Funkcja filtrująca
         function filterPlayers() {
             const query = document.getElementById('playerSearchInput').value.toLowerCase();
             
-            // Filtrujemy tablicę allPlayersData
             const filtered = allPlayersData.filter(player => {
                 const nameMatch = player.name.toLowerCase().includes(query);
                 const idMatch = player.id.toString().includes(query);
                 return nameMatch || idMatch;
             });
 
-            // Ponownie renderujemy tabelę z przefiltrowanymi danymi
             renderTable(filtered);
         }
 
