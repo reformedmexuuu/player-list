@@ -142,7 +142,7 @@
 
     <div class="main-wrapper">
         <div class="server-search-box">
-            <input type="text" id="cfxInput" placeholder="Wpisz CFX ID (np. epk8gp)" value="epk8gp">
+            <input type="text" id="cfxInput" placeholder="Wpisz CFX ID (np. epk8gp)">
             <button class="search-btn" onclick="initFetch()">Pobierz listę</button>
         </div>
 
@@ -172,7 +172,7 @@
                 <tbody id="playersTable">
                     <tr>
                         <td colspan="5" style="text-align: center; color: #666; padding: 20px;">
-                            Kliknij "Pobierz listę", aby załadować graczy.
+                            Wpisz ID serwera powyżej lub użyj linku z ID.
                         </td>
                     </tr>
                 </tbody>
@@ -186,6 +186,20 @@
         let countdownTimer;
         let timeLeft = 60;
         const REFRESH_TIME = 60;
+
+        // --- OBSŁUGA URL PRZY STARCIE ---
+        window.addEventListener('DOMContentLoaded', () => {
+            // Sprawdzamy, czy w adresie jest parametr ?server=...
+            const urlParams = new URLSearchParams(window.location.search);
+            const serverId = urlParams.get('server');
+
+            if (serverId) {
+                // Jeśli jest, wpisz go w input i pobierz dane automatycznie
+                document.getElementById('cfxInput').value = serverId;
+                initFetch();
+            }
+        });
+        // --------------------------------
 
         function initFetch() {
             stopAutoRefresh();
@@ -210,6 +224,13 @@
                 return;
             }
 
+            // --- AKTUALIZACJA URL ---
+            // Dodajemy parametr server=ID do paska adresu bez przeładowania strony
+            const newUrl = new URL(window.location);
+            newUrl.searchParams.set('server', cfxId);
+            window.history.pushState({}, '', newUrl);
+            // ------------------------
+
             if (!keepFilter) {
                 tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Ładowanie danych...</td></tr>';
                 infoDiv.innerText = '';
@@ -220,7 +241,7 @@
             }
 
             try {
-                // Cache busting (timestamp)
+                // Cache busting
                 const uniqueParam = `?_=${Date.now()}`;
                 
                 const apiUrl = `https://servers-frontend.fivem.net/api/servers/single/${cfxId}${uniqueParam}`;
@@ -356,4 +377,3 @@
     </script>
 </body>
 </html>
-
