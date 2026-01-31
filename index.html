@@ -225,9 +225,11 @@
             }
 
             // --- AKTUALIZACJA URL ---
+            // Dodajemy parametr server=ID do paska adresu bez przeładowania strony
             const newUrl = new URL(window.location);
             newUrl.searchParams.set('server', cfxId);
             window.history.pushState({}, '', newUrl);
+            // ------------------------
 
             if (!keepFilter) {
                 tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Ładowanie danych...</td></tr>';
@@ -243,9 +245,7 @@
                 const uniqueParam = `?_=${Date.now()}`;
                 
                 const apiUrl = `https://servers-frontend.fivem.net/api/servers/single/${cfxId}${uniqueParam}`;
-                
-                // ZMIANA PROXY TUTAJ: Używamy allorigins.win z flagą /raw
-                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
 
                 const response = await fetch(proxyUrl);
                 
@@ -277,12 +277,8 @@
 
             } catch (error) {
                 console.error(error);
-                // Dodatkowa informacja w konsoli co poszło nie tak
                 if (!keepFilter) {
-                    tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: tomato;">
-                        Błąd pobierania danych.<br>
-                        <small>Możliwa przyczyna: Proxy zablokowało połączenie lub serwer FiveM jest offline.</small>
-                    </td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: tomato;">Błąd: ${error.message}</td></tr>`;
                 }
             }
         }
